@@ -2120,23 +2120,11 @@ impl<'a> Tokenizer<'a> {
                 }
                 Some('!') if supports_c_style_comments => {
                     c_style_comments = true;
-                    loop {
-                        match chars.peek() {
-                            Some('0')
-                            | Some('1')
-                            | Some('2')
-                            | Some('3')
-                            | Some('4')
-                            | Some('5')
-                            | Some('6')
-                            | Some('7')
-                            | Some('8')
-                            | Some('9') => {
-                                chars.next(); // consume the digit
-                            }
-                            _ => {
-                                break;
-                            }
+                    while let Some(&c) = chars.peek() {
+                        if c.is_ascii_digit() || c.is_whitespace() {
+                            chars.next();
+                        } else {
+                            break;
                         }
                     }
                 }
@@ -4098,7 +4086,7 @@ mod tests {
     }
     #[test]
     fn tokenize_multiline_comment_with_c_style_comment() {
-        let sql = String::from("0/*!word*/1");
+        let sql = String::from("0/*! word*/1");
 
         let dialect = MySqlDialect {};
         let tokens = Tokenizer::new(&dialect, &sql).tokenize().unwrap();
@@ -4116,7 +4104,7 @@ mod tests {
 
     #[test]
     fn tokenize_multiline_comment_with_c_style_comment_and_version() {
-        let sql = String::from("0/*!8000000word*/1");
+        let sql = String::from("0/*!8000000 word*/1");
 
         let dialect = MySqlDialect {};
         let tokens = Tokenizer::new(&dialect, &sql).tokenize().unwrap();
