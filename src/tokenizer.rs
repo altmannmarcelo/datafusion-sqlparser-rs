@@ -2107,8 +2107,9 @@ impl<'a> Tokenizer<'a> {
     ) -> Result<Option<Token>, TokenizerError> {
         let mut s = String::new();
         let mut nested = 1;
+        let mut c_style_comments = false;
         let supports_nested_comments = self.dialect.supports_nested_comments();
-
+        let supports_c_style_comments = self.dialect.supports_c_style_comments();
         loop {
             match chars.next() {
                 Some('/') if matches!(chars.peek(), Some('*')) && supports_nested_comments => {
@@ -2117,10 +2118,35 @@ impl<'a> Tokenizer<'a> {
                     s.push('*');
                     nested += 1;
                 }
+                Some('!') if supports_c_style_comments => {
+                    c_style_comments = true;
+                    loop {
+                        match chars.peek() {
+                            Some('0')
+                            | Some('1')
+                            | Some('2')
+                            | Some('3')
+                            | Some('4')
+                            | Some('5')
+                            | Some('6')
+                            | Some('7')
+                            | Some('8')
+                            | Some('9') => {
+                                chars.next(); // consume the digit
+                            }
+                            _ => {
+                                break;
+                            }
+                        }
+                    }
+                }
                 Some('*') if matches!(chars.peek(), Some('/')) => {
                     chars.next(); // consume the '/'
                     nested -= 1;
                     if nested == 0 {
+                        if c_style_comments {
+                            break Ok(Some(Token::make_word(&s, None)));
+                        }
                         break Ok(Some(Token::Whitespace(Whitespace::MultiLineComment(s))));
                     }
                     s.push('*');
@@ -4069,5 +4095,40 @@ mod tests {
         if let Ok(tokens) = Tokenizer::new(&dialect, &sql).tokenize() {
             panic!("Tokenizer should have failed on {sql}, but it succeeded with {tokens:?}");
         }
+    }
+    #[test]
+    fn tokenize_multiline_comment_with_c_style_comment() {
+        let sql = String::from("0/*!word*/1");
+
+        let dialect = MySqlDialect {};
+        let tokens = Tokenizer::new(&dialect, &sql).tokenize().unwrap();
+        let expected = vec![
+            Token::Number("0".to_string(), false),
+            Token::Word(Word {
+                value: "word".to_string(),
+                quote_style: None,
+                keyword: Keyword::NoKeyword,
+            }),
+            Token::Number("1".to_string(), false),
+        ];
+        compare(expected, tokens);
+    }
+
+    #[test]
+    fn tokenize_multiline_comment_with_c_style_comment_and_version() {
+        let sql = String::from("0/*!8000000word*/1");
+
+        let dialect = MySqlDialect {};
+        let tokens = Tokenizer::new(&dialect, &sql).tokenize().unwrap();
+        let expected = vec![
+            Token::Number("0".to_string(), false),
+            Token::Word(Word {
+                value: "word".to_string(),
+                quote_style: None,
+                keyword: Keyword::NoKeyword,
+            }),
+            Token::Number("1".to_string(), false),
+        ];
+        compare(expected, tokens);
     }
 }
